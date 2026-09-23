@@ -1,0 +1,107 @@
+import os
+import requests
+import yfinance as yf
+
+# Telegram Credentials
+BOT_TOKEN = "8854424979:AAFKChJyWcVgw5lM8pS-Ru8SIiHxECyxJ-8"
+CHAT_ID = "8214883798"
+
+# Watchlist
+WATCHLIST = [
+    "LITE", "RKLB", "SNDK", "MSFT", "GOOGL",
+    "AMZN", "NVDA", "PLTR", "CLS", "SHOP", "RY", "NOK", "AEM"
+]
+
+TAKE_PROFIT_PCT = 0.05
+STOP_LOSS_PCT = 0.02
+
+def send_telegram_alert(message):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
+    try:
+        res = requests.post(url, data=payload)
+        print(f"Telegram status: {res.status_code}")
+    except Exception as e:
+        print(f"Telegram Error: {e}")
+
+def calculate_macd(df):
+    exp1 = df['Close'].ewm(span=12, adjust=False).mean()
+    exp2 = df['Close'].ewm(span=26, adjust=False).mean()
+    macd = exp1 - exp2
+    signal = macd.ewm(span=9, adjust=False).mean()
+    return macd, signal
+
+def run_bot():
+    morning_report = "<b>🚀 BULL MARKET MOMENTUM REPORT</b>\n─────────────\n"
+    buy_signals = []
+
+    for symbol in WATCHLIST:
+        try:
+            ticker = yf.Ticker(symbol)
+            df = ticker.history(period="1mo", interval="5m")
+            if df.empty or len(df) < 26:
+                continue
+
+            df['SMA_50'] = df['Close'].rolling(window=14).mean()
+            delta = df['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss
+            df['RSI'] = 100 - (100 / (1 + rs))
+
+            macd, signal = calculate_macd(df)
+            df['MACD'] = macd
+            df['MACD_Signal'] = signal
+
+            latest = df.iloc[-1]
+            price = latest['Close']
+            rsi = latest['RSI']
+            sma = latest['SMA_50']
+            avg_volume = df['Volume'].mean()
+
+            score = 0
+            signals = []
+
+            if price > sma:
+                score += 1
+                signals.append("Above 50-period SMA")
+
+            if 50 <= rsi <= 70:
+                score += 1
+                signals.append(f"Strong Momentum RSI ({rsi:.1f})")
+
+            if latest['Volume'] > (avg_volume * 1.2):
+                score += 1
+                signals.append("Institutional Volume Spike")
+
+            if latest['MACD'] > latest['MACD_Signal']:
+                score += 1
+                signals.append("MACD Bullish Momentum")
+
+            market_status = "🔥 STRONG BREAKOUT" if score >= 3 else ("🟢 BULLISH" if score == 2 else "🟡 NEUTRAL")
+            morning_report += f"<b>{symbol}</b>: <code>${price:.2f}</code> | RSI: <code>{rsi:.1f}</code> | {market_status}\n"
+
+            if score >= 3:
+                target_price = price * (1 + TAKE_PROFIT_PCT)
+                stop_price = price * (1 - STOP_LOSS_PCT)
+                buy_msg = f"""<b>🚀 HIGH-MOMENTUM BUY ALERT: {symbol}</b>
+─────────────
+<b>Action:</b> BUY ENTRY (Breakout Candidate)
+<b>Buy Price:</b> <code>${price:.2f}</code>
+<b>Sell Target (+5%):</b> <code>${target_price:.2f}</code>
+<b>Stop-Loss (-2%):</b> <code>${stop_price:.2f}</code>
+
+<b>Passed Setup ({score}/4 Criteria):</b>
+• """ + "\n• ".join(signals)
+                buy_signals.append(buy_msg)
+        except Exception as err:
+            print(f"Skipping {symbol} due to error: {err}")
+
+    morning_report += "\n<i>Ride the trend & stick to your stop-loss!</i>"
+
+    send_telegram_alert(morning_report)
+    for alert in buy_signals:
+        send_telegram_alert(alert)
+
+if __name__ == "__main__":
+    run_bot()
