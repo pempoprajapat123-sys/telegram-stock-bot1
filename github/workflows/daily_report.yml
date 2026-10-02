@@ -1,29 +1,34 @@
-name: Daily Stock Report Automation
+name: All-Stock 3-Phase Scanner & Alert Bot
 
 on:
   schedule:
-    # Runs at 13:45 UTC (9:45 AM EST) Monday-Friday
-    - cron: '45 13 * * 1-5'
+    # 1. Pre-Market Briefing: 9:00 AM EST (13:00 UTC), Mon-Fri
+    - cron: '0 13 * * 1-5'
+    # 2. 30-Mins Post-Open Observation: 10:00 AM EST (14:00 UTC), Mon-Fri
+    - cron: '0 14 * * 1-5'
+    # 3. 30-Mins Before Close Alert: 3:30 PM EST (19:30 UTC), Mon-Fri
+    - cron: '30 19 * * 1-5'
   workflow_dispatch:
 
 jobs:
-  run-stock-report:
+  run-scheduled-scan:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
       - name: Install Dependencies
         run: |
-          pip install requests yfinance pandas
+          python -m pip install --upgrade pip
+          pip install yfinance nltk requests pandas feedparser
 
-      - name: Execute Stock Script
+      - name: Execute Multi-Stock Scanner
         env:
-          BOTTOKEN: ${{ secrets.BOTTOKEN }}
-          CHATID: ${{ secrets.CHATID }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python stock_bot.py
